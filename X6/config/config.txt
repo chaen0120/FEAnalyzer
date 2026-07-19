@@ -1,0 +1,24 @@
+# X6 calibration config
+# Edit this file, then run:  root -l run_calibration.C
+# Lines starting with # are comments. Keys are case-sensitive.
+
+input_pattern = ../DAQ/X6decay_test_2/RAW/DataR_X6decay_test_0002*.root
+output_dir = output
+mapping_file = config/mapping.txt
+
+# 0/1 (or true/false, yes/no)
+use_energy_short = 0
+
+# Coincidence window in timestamp units. Use -1 to auto-set from timing fit.
+coincidence_window = -1
+n_sigma = 5.0
+
+# Reject hits with Energy < adc_threshold
+adc_threshold = 50.0
+
+# Calibration peaks: n_peaks energies in MeV (comma-separated), assigned low→high ADC
+n_peaks = 1
+peak_energies_mev = 5.486
+
+# Timing diagnostic probe window (same units as timestamps; ~ps for CAEN)
+timing_probe_window = 400000

@@ -1,0 +1,44 @@
+# Sample Board/Channel -> physical strip map for 16x16 double-sided detector.
+# Format:
+#   board  channel  axis  strip
+# axis  = X or Y
+# strip = 0 .. 15 (physical index along that axis)
+#
+# Default below matches the previous hard-coded convention:
+#   board 0 -> X strips (formerly "front")
+#   board 1 -> Y strips (formerly "back")
+# Edit strip indices to correct cabling order / flips.
+
+0  0  Y  8
+0  1  Y  9
+0  2  Y  10
+0  3  Y  11
+0  4  Y  12
+0  5  Y  13
+0  6  Y  14
+0  7  Y  15
+0  8  Y  7
+0  9  Y  6
+0 10  Y  5
+0 11  Y  4
+0 12  Y  3
+0 13  Y  2
+0 14  Y  1
+0 15  Y  0
+
+1  0  X  7
+1  1  X  6
+1  2  X  5
+1  3  X  4
+1  4  X  3
+1  5  X  2
+1  6  X  1
+1  7  X  0
+1  8  X  8
+1  9  X  9
+1 10  X  10
+1 11  X  11
+1 12  X  12
+1 13  X  13
+1 14  X  14
+1 15  X  15

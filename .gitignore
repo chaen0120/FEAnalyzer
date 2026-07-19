@@ -1,0 +1,58 @@
+# FEAnalyzer .gitignore
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.swo
+*.bak
+.vscode/
+.idea/
+*.code-workspace
+
+# --- ROOT / Cling build artifacts ---
+*.d
+*.so
+*.pcm
+*_C.d
+*_C.so
+*_C_ACLiC_dict*
+*_h.d
+*_h.so
+*_h_ACLiC_dict*
+.ACLiC*
+
+# --- Data products (do not commit large/binary run outputs) ---
+*.root
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.eps
+*.gif
+*.csv
+*.hbook
+
+# Keep text configs/maps tracked; ignore generated tables in output dirs
+# (see directory rules below)
+
+# --- X6 generated output ---
+X6/output/
+
+# --- W1 generated output / local symlink ---
+W1_ThickMeas/current.root
+W1_ThickMeas/AnaW1Pix/
+W1_ThickMeas/CalPixE/
+W1_ThickMeas/UnifPix/
+
+# --- Misc ---
+*.log
+*.tmp
+*.temp
+core
+core.*
+__pycache__/
+*.pyc
+.env
+.venv/
