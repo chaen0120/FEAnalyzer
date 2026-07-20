@@ -19,6 +19,10 @@ constexpr int kNumOhmic = 4;
 constexpr int kEnergyBins = 512;
 constexpr double kEnergyMin = 0.0;
 constexpr double kEnergyMax = 2048.0;
+constexpr int kPositionBins = 200;
+constexpr double kPositionMin = -1.0;
+constexpr double kPositionMax = 1.0;
+constexpr int kPinShareBins = 256;  // for E_pin0 vs E_pin1
 
 // -----------------------------------------------------------------------------
 // Run configuration (loaded from text config file)
@@ -90,6 +94,8 @@ struct CoincidenceEvent {
   double energyPin1 = 0.0;
   double ohmicEnergy = 0.0;
   double junctionSum = 0.0;
+  // Charge-division position: (E0 - E1) / (E0 + E1), range typically [-1, 1]
+  double junctionPos = 0.0;
   ULong64_t anchorTs = 0;
   double dtOhmicPin0 = 0.0;
   double dtOhmicPin1 = 0.0;

@@ -99,8 +99,10 @@ root -l -b -q 'run_calibration.C("config/config.txt")'
 | File | Contents |
 |------|----------|
 | `dt_timing.pdf` | Timing diagnostics |
-| `ohmic_peaks.pdf` / `junction_peaks.pdf` | Peak spectra + fits |
-| `calibration_linear_fits.pdf` | ADC vs E linear fits (4×3, one detector/page) |
+| `ohmic_peaks.pdf` / `junction_peaks.pdf` | Peak spectra + fits (one detector/page) |
+| `junction_epin0_epin1.pdf` | Junction \(E_{\mathrm{pin0}}\) vs \(E_{\mathrm{pin1}}\) (one detector/page) |
+| `junction_position_energy.pdf` | Position \(\eta=(E_0-E_1)/(E_0+E_1)\) vs energy (one detector/page) |
+| `calibration_linear_fits.pdf` | ADC vs E linear fits (one detector/page) |
 | `x6_calibration_summary.txt` | Timing + peak info |
 | `x6_calibration_coeffs.txt` | Calibration coefficients A, B |
 | `x6_calibration_histograms.root` | Histograms / fits |

@@ -6,7 +6,9 @@
 #include <TF1.h>
 #include <TGraph.h>
 #include <TGraphErrors.h>
+#include <TH1.h>
 #include <TH1D.h>
+#include <TH2D.h>
 #include <TLatex.h>
 #include <TLegend.h>
 #include <TROOT.h>
@@ -800,6 +802,12 @@ static std::vector<CoincidenceEvent> FindCoincidences(
         best.ohmicEnergy = ev.energy;
         best.junctionSum = static_cast<double>(hitPin0->energy) +
                            static_cast<double>(hitPin1->energy);
+        if (best.junctionSum > 0.0) {
+          best.junctionPos =
+              (best.energyPin0 - best.energyPin1) / best.junctionSum;
+        } else {
+          best.junctionPos = 0.0;
+        }
         best.anchorTs = ev.timestamp;
         best.dtOhmicPin0 = dtA;
         best.dtOhmicPin1 = dtB;
@@ -866,21 +874,113 @@ static TH1D *MakeTimingHistogram(const char *name,
   return hist;
 }
 
-static void DrawAndSave(TH1D *hist,
-                        TF1 *fit,
-                        const TString &outDir,
-                        const TString &baseName,
-                        int color) {
-  TCanvas *c = new TCanvas(baseName, baseName, 900, 650);
-  hist->SetLineColor(color);
-  hist->SetLineWidth(2);
-  hist->Draw();
-  if (fit != nullptr) {
-    fit->SetLineColor(kRed + 1);
-    fit->SetLineWidth(2);
-    fit->Draw("same");
+static void ChoosePadGrid(int nPads, int &nCols, int &nRows) {
+  if (nPads <= 1) {
+    nCols = 1;
+    nRows = 1;
+  } else if (nPads <= 4) {
+    nCols = 2;
+    nRows = 2;
+  } else if (nPads <= 6) {
+    nCols = 3;
+    nRows = 2;
+  } else if (nPads <= 8) {
+    nCols = 4;
+    nRows = 2;
+  } else if (nPads <= 9) {
+    nCols = 3;
+    nRows = 3;
+  } else if (nPads <= 12) {
+    nCols = 4;
+    nRows = 3;
+  } else if (nPads <= 16) {
+    nCols = 4;
+    nRows = 4;
+  } else {
+    nCols = 4;
+    nRows = (nPads + nCols - 1) / nCols;
   }
-  c->SaveAs(outDir + "/" + baseName + ".pdf");
+}
+
+// One histogram pad for DrawDetectorPagesPdf (1D with optional fit, or 2D COLZ).
+struct DetectorPad {
+  TH1 *hist = nullptr;
+  TF1 *fit = nullptr;
+  int color = kBlue + 1;
+  bool is2D = false;
+};
+
+// Flexible multi-page PDF: one detector (one vector of pads) per page.
+// Grid is chosen automatically from the number of pads.
+static void DrawDetectorPagesPdf(const std::vector<std::vector<DetectorPad>> &detPages,
+                                 const TString &outDir,
+                                 const TString &fileName) {
+  if (detPages.empty()) {
+    return;
+  }
+
+  std::size_t maxPads = 0;
+  for (const auto &pads : detPages) {
+    maxPads = std::max(maxPads, pads.size());
+  }
+  if (maxPads == 0) {
+    return;
+  }
+
+  int nCols = 1;
+  int nRows = 1;
+  ChoosePadGrid(static_cast<int>(maxPads), nCols, nRows);
+
+  const TString pdfPath = outDir + "/" + fileName;
+  TCanvas *c = new TCanvas(Form("c_%s", fileName.Data()), fileName, 1600, 1200);
+  c->Print(pdfPath + "[", "pdf");
+
+  for (std::size_t idet = 0; idet < detPages.size(); ++idet) {
+    const auto &pads = detPages[idet];
+    c->Clear();
+    c->Divide(nCols, nRows);
+
+    for (std::size_t ip = 0; ip < pads.size(); ++ip) {
+      c->cd(static_cast<int>(ip) + 1);
+      gPad->SetLeftMargin(pads[ip].is2D ? 0.14 : 0.15);
+      gPad->SetRightMargin(pads[ip].is2D ? 0.14 : 0.05);
+      gPad->SetBottomMargin(0.14);
+      gPad->SetTopMargin(0.10);
+
+      TH1 *hist = pads[ip].hist;
+      if (hist == nullptr) {
+        continue;
+      }
+
+      if (pads[ip].is2D) {
+        hist->SetStats(0);
+        hist->GetXaxis()->SetTitleSize(0.05);
+        hist->GetYaxis()->SetTitleSize(0.05);
+        hist->GetXaxis()->SetLabelSize(0.045);
+        hist->GetYaxis()->SetLabelSize(0.045);
+        hist->Draw("COLZ");
+      } else {
+        hist->SetLineColor(pads[ip].color);
+        hist->SetLineWidth(2);
+        hist->SetTitleSize(0.06, "");
+        hist->GetXaxis()->SetLabelSize(0.05);
+        hist->GetYaxis()->SetLabelSize(0.05);
+        hist->GetXaxis()->SetTitleSize(0.05);
+        hist->GetYaxis()->SetTitleSize(0.05);
+        hist->Draw();
+        if (pads[ip].fit != nullptr) {
+          pads[ip].fit->SetLineColor(kRed + 1);
+          pads[ip].fit->SetLineWidth(2);
+          pads[ip].fit->Draw("same");
+        }
+      }
+    }
+    c->Print(pdfPath, "pdf");
+  }
+
+  c->Print(pdfPath + "]", "pdf");
+  std::cout << "Wrote PDF (one detector/page, " << nCols << "x" << nRows
+            << " pads): " << pdfPath << "\n";
 }
 
 static void DrawAndSaveTimingPdf(const std::vector<TH1D *> &hists,
@@ -896,7 +996,7 @@ static void DrawAndSaveTimingPdf(const std::vector<TH1D *> &hists,
   const TString pdfPath = outDir + "/" + fileName;
   TCanvas *c = new TCanvas("c_dt_timing", "Timing diagnostics", 900, 650);
 
-  // Multi-page PDF: one histogram per page.
+  // Timing diagnostics: one histogram per page.
   c->Print(pdfPath + "[", "pdf");
   for (std::size_t i = 0; i < hists.size(); ++i) {
     c->cd();
@@ -918,7 +1018,9 @@ static void DrawAndSaveTimingPdf(const std::vector<TH1D *> &hists,
 }
 
 static void CreateEnergyHistograms(TH1D *hOhmic[kNumDetectors][kNumOhmic],
-                                   TH1D *hJunction[kNumDetectors][kNumStrips]) {
+                                   TH1D *hJunction[kNumDetectors][kNumStrips],
+                                   TH2D *hPin0Pin1[kNumDetectors][kNumStrips],
+                                   TH2D *hPosEnergy[kNumDetectors][kNumStrips]) {
   for (int det = 0; det < kNumDetectors; ++det) {
     for (int ohm = 0; ohm < kNumOhmic; ++ohm) {
       hOhmic[det][ohm] = new TH1D(
@@ -931,6 +1033,19 @@ static void CreateEnergyHistograms(TH1D *hOhmic[kNumDetectors][kNumOhmic],
           Form("h_junction_d%d_s%d", det, strip),
           Form("Junction sum det=%d strip=%d;ADC sum;Counts", det, strip),
           kEnergyBins, kEnergyMin, kEnergyMax);
+      hPin0Pin1[det][strip] = new TH2D(
+          Form("h_pin0_pin1_d%d_s%d", det, strip),
+          Form("E_{pin0} vs E_{pin1} det=%d strip=%d;E_{pin0} [ADC];E_{pin1} [ADC]",
+               det, strip),
+          kPinShareBins, kEnergyMin, kEnergyMax, kPinShareBins, kEnergyMin,
+          kEnergyMax);
+      hPosEnergy[det][strip] = new TH2D(
+          Form("h_pos_energy_d%d_s%d", det, strip),
+          Form("Position vs energy det=%d strip=%d;"
+               "(E_{0}-E_{1})/(E_{0}+E_{1});E_{0}+E_{1} [ADC]",
+               det, strip),
+          kPositionBins, kPositionMin, kPositionMax, kEnergyBins, kEnergyMin,
+          kEnergyMax);
     }
   }
 }
@@ -938,7 +1053,9 @@ static void CreateEnergyHistograms(TH1D *hOhmic[kNumDetectors][kNumOhmic],
 static void FillEnergyHistograms(
     const std::vector<CoincidenceEvent> &coincidences,
     TH1D *hOhmic[kNumDetectors][kNumOhmic],
-    TH1D *hJunction[kNumDetectors][kNumStrips]) {
+    TH1D *hJunction[kNumDetectors][kNumStrips],
+    TH2D *hPin0Pin1[kNumDetectors][kNumStrips],
+    TH2D *hPosEnergy[kNumDetectors][kNumStrips]) {
   for (const auto &co : coincidences) {
     if (co.detector < 0 || co.detector >= kNumDetectors) {
       continue;
@@ -948,6 +1065,8 @@ static void FillEnergyHistograms(
     }
     if (co.stripIndex >= 0 && co.stripIndex < kNumStrips) {
       hJunction[co.detector][co.stripIndex]->Fill(co.junctionSum);
+      hPin0Pin1[co.detector][co.stripIndex]->Fill(co.energyPin0, co.energyPin1);
+      hPosEnergy[co.detector][co.stripIndex]->Fill(co.junctionPos, co.junctionSum);
     }
   }
 }
@@ -987,80 +1106,6 @@ static void FitEnergyHistograms(
       junctionFits.push_back(j);
     }
   }
-}
-
-static void DrawAndSaveEnergyPdf(const std::vector<std::pair<TH1D *, TF1 *>> &pages,
-                                 int color,
-                                 const TString &outDir,
-                                 const TString &fileName) {
-  if (pages.empty()) {
-    return;
-  }
-
-  const TString pdfPath = outDir + "/" + fileName;
-  TCanvas *c = new TCanvas("c_energy_peaks", "energy peaks", 1400, 1400);
-  c->Print(pdfPath + "[", "pdf");
-
-  const int nPad = 16;
-  for (std::size_t start = 0; start < pages.size(); start += nPad) {
-    c->Clear();
-    c->Divide(4, 4);
-    for (int pad = 0; pad < nPad; ++pad) {
-      const std::size_t idx = start + static_cast<std::size_t>(pad);
-      if (idx >= pages.size()) {
-        break;
-      }
-      c->cd(pad + 1);
-      gPad->SetLeftMargin(0.15);
-      gPad->SetRightMargin(0.05);
-      gPad->SetBottomMargin(0.12);
-      TH1D *hist = pages[idx].first;
-      TF1 *fit = pages[idx].second;
-      hist->SetLineColor(color);
-      hist->SetLineWidth(2);
-      hist->SetTitleSize(0.06, "");
-      hist->GetXaxis()->SetLabelSize(0.05);
-      hist->GetYaxis()->SetLabelSize(0.05);
-      hist->GetXaxis()->SetTitleSize(0.05);
-      hist->GetYaxis()->SetTitleSize(0.05);
-      hist->Draw();
-      if (fit != nullptr) {
-        fit->SetLineColor(kRed + 1);
-        fit->SetLineWidth(2);
-        fit->Draw("same");
-      }
-    }
-    c->Print(pdfPath, "pdf");
-  }
-
-  c->Print(pdfPath + "]", "pdf");
-  std::cout << "Wrote energy PDF (4x4 per page): " << pdfPath << "\n";
-}
-
-static void DrawOhmicPeaksPdf(TH1D *hOhmic[kNumDetectors][kNumOhmic],
-                              TF1 *fOhmic[kNumDetectors][kNumOhmic],
-                              const TString &outDir) {
-  std::vector<std::pair<TH1D *, TF1 *>> pages;
-  pages.reserve(kNumDetectors * kNumOhmic);
-  for (int det = 0; det < kNumDetectors; ++det) {
-    for (int ohm = 0; ohm < kNumOhmic; ++ohm) {
-      pages.push_back(std::make_pair(hOhmic[det][ohm], fOhmic[det][ohm]));
-    }
-  }
-  DrawAndSaveEnergyPdf(pages, kBlue + 1, outDir, "ohmic_peaks.pdf");
-}
-
-static void DrawJunctionPeaksPdf(TH1D *hJunction[kNumDetectors][kNumStrips],
-                                 TF1 *fJunction[kNumDetectors][kNumStrips],
-                                 const TString &outDir) {
-  std::vector<std::pair<TH1D *, TF1 *>> pages;
-  pages.reserve(kNumDetectors * kNumStrips);
-  for (int det = 0; det < kNumDetectors; ++det) {
-    for (int strip = 0; strip < kNumStrips; ++strip) {
-      pages.push_back(std::make_pair(hJunction[det][strip], fJunction[det][strip]));
-    }
-  }
-  DrawAndSaveEnergyPdf(pages, kGreen + 2, outDir, "junction_peaks.pdf");
 }
 
 static void WritePeakFitSummaryBlock(FILE *fp,
@@ -1138,20 +1183,25 @@ static const PeakFitResult *FindPeakFitResult(const std::vector<PeakFitResult> &
   return nullptr;
 }
 
-// Draw ADC vs E linear calibration: 4x3 pads per page, one detector per page.
-// Pad order: ohmic 0-3, then junction strips 0-7 (12 pads total).
+// Draw ADC vs E linear calibration: one detector per page.
+// Pad order: ohmic 0-3, then junction strips 0-7.
 static void DrawCalibrationLinearPdf(const std::vector<PeakFitResult> &ohmicFits,
                                      const std::vector<PeakFitResult> &junctionFits,
                                      const TString &outDir) {
+  const int nPads = kNumOhmic + kNumStrips;
+  int nCols = 1;
+  int nRows = 1;
+  ChoosePadGrid(nPads, nCols, nRows);
+
   const TString pdfPath = outDir + "/calibration_linear_fits.pdf";
   TCanvas *c = new TCanvas("c_calib_linear", "calibration linear fits", 1600, 1200);
   c->Print(pdfPath + "[", "pdf");
 
   for (int det = 0; det < kNumDetectors; ++det) {
     c->Clear();
-    c->Divide(4, 3);
+    c->Divide(nCols, nRows);
 
-    for (int pad = 0; pad < 12; ++pad) {
+    for (int pad = 0; pad < nPads; ++pad) {
       c->cd(pad + 1);
       gPad->SetLeftMargin(0.16);
       gPad->SetRightMargin(0.04);
@@ -1195,7 +1245,6 @@ static void DrawCalibrationLinearPdf(const std::vector<PeakFitResult> &ohmicFits
         adcMax = std::max(adcMax, r->meansAdc[i]);
       }
 
-      // Also include the fit line endpoints so the line is fully visible.
       const double ePad = std::max(0.15 * std::max(eMax - eMin, 0.2), 0.05);
       const double xLo = std::max(0.0, eMin - ePad);
       const double xHi = eMax + ePad;
@@ -1252,8 +1301,8 @@ static void DrawCalibrationLinearPdf(const std::vector<PeakFitResult> &ohmicFits
   }
 
   c->Print(pdfPath + "]", "pdf");
-  std::cout << "Wrote calibration linear-fit PDF (4x3, one det/page): " << pdfPath
-            << "\n";
+  std::cout << "Wrote PDF (one detector/page, " << nCols << "x" << nRows
+            << " pads): " << pdfPath << "\n";
 }
 
 static void SaveSummary(const std::vector<CoincidenceEvent> &coincidences,
@@ -1486,10 +1535,67 @@ void PrintConfig(const RunConfig &cfg) {
   std::cout << "  timing_probe_window  : " << cfg.timingProbeWindow << "\n\n";
 }
 
+// Resolve relative paths with string-based '..' using $PWD (logical path).
+// Needed when the package is a symlink inside a CoMPASS project: Linux follows
+// the real directory for '..', so "../DAQ" would miss the project's DAQ/.
+static std::string ResolvePath(const std::string &path) {
+  if (path.empty() || path[0] == '/') {
+    return path;
+  }
+
+  const char *pwdEnv = std::getenv("PWD");
+  std::string base = (pwdEnv != nullptr) ? std::string(pwdEnv) : std::string();
+  if (base.empty()) {
+    return path;
+  }
+
+  std::string joined = base + "/" + path;
+  std::vector<std::string> parts;
+  std::string token;
+  for (std::size_t i = 0; i <= joined.size(); ++i) {
+    const char c = (i < joined.size()) ? joined[i] : '/';
+    if (c == '/') {
+      if (token.empty() || token == ".") {
+        // skip
+      } else if (token == "..") {
+        if (!parts.empty()) {
+          parts.pop_back();
+        }
+      } else {
+        parts.push_back(token);
+      }
+      token.clear();
+    } else {
+      token.push_back(c);
+    }
+  }
+
+  std::string out = "/";
+  for (std::size_t i = 0; i < parts.size(); ++i) {
+    if (i > 0) {
+      out += "/";
+    }
+    out += parts[i];
+  }
+  return out;
+}
+
 void RunCalibration(const RunConfig &cfg) {
-  const TString tInputPattern(cfg.inputPattern.c_str());
-  const TString tOutputDir(cfg.outputDir.c_str());
-  const TString tMappingFile(cfg.mappingFile.c_str());
+  const std::string resolvedInput = ResolvePath(cfg.inputPattern);
+  const std::string resolvedOutput = ResolvePath(cfg.outputDir);
+  const std::string resolvedMapping = ResolvePath(cfg.mappingFile);
+
+  if (resolvedInput != cfg.inputPattern || resolvedMapping != cfg.mappingFile ||
+      resolvedOutput != cfg.outputDir) {
+    std::cout << "Resolved paths (via $PWD):\n"
+              << "  input_pattern : " << resolvedInput << "\n"
+              << "  output_dir    : " << resolvedOutput << "\n"
+              << "  mapping_file  : " << resolvedMapping << "\n";
+  }
+
+  const TString tInputPattern(resolvedInput.c_str());
+  const TString tOutputDir(resolvedOutput.c_str());
+  const TString tMappingFile(resolvedMapping.c_str());
 
   gROOT->SetBatch(kTRUE);
   gStyle->SetOptStat(1110);
@@ -1547,10 +1653,12 @@ void RunCalibration(const RunConfig &cfg) {
 
   TH1D *hOhmic[kNumDetectors][kNumOhmic] = {};
   TH1D *hJunction[kNumDetectors][kNumStrips] = {};
+  TH2D *hPin0Pin1[kNumDetectors][kNumStrips] = {};
+  TH2D *hPosEnergy[kNumDetectors][kNumStrips] = {};
   TF1 *fOhmic[kNumDetectors][kNumOhmic] = {};
   TF1 *fJunction[kNumDetectors][kNumStrips] = {};
-  CreateEnergyHistograms(hOhmic, hJunction);
-  FillEnergyHistograms(coincidences, hOhmic, hJunction);
+  CreateEnergyHistograms(hOhmic, hJunction, hPin0Pin1, hPosEnergy);
+  FillEnergyHistograms(coincidences, hOhmic, hJunction, hPin0Pin1, hPosEnergy);
 
   std::vector<PeakFitResult> ohmicFits;
   std::vector<PeakFitResult> junctionFits;
@@ -1584,8 +1692,41 @@ void RunCalibration(const RunConfig &cfg) {
       {kBlue + 1, kOrange + 7, kOrange + 1, kMagenta + 1, kCyan + 2, kViolet + 1,
        kPink + 2},
       tOutputDir, "dt_timing.pdf", fDtMaxSpan, 5);
-  DrawOhmicPeaksPdf(hOhmic, fOhmic, tOutputDir);
-  DrawJunctionPeaksPdf(hJunction, fJunction, tOutputDir);
+
+  std::vector<std::vector<DetectorPad>> ohmicPages(kNumDetectors);
+  std::vector<std::vector<DetectorPad>> junctionPages(kNumDetectors);
+  std::vector<std::vector<DetectorPad>> pin0Pin1Pages(kNumDetectors);
+  std::vector<std::vector<DetectorPad>> posEnergyPages(kNumDetectors);
+  for (int det = 0; det < kNumDetectors; ++det) {
+    for (int ohm = 0; ohm < kNumOhmic; ++ohm) {
+      DetectorPad p;
+      p.hist = hOhmic[det][ohm];
+      p.fit = fOhmic[det][ohm];
+      p.color = kBlue + 1;
+      ohmicPages[det].push_back(p);
+    }
+    for (int strip = 0; strip < kNumStrips; ++strip) {
+      DetectorPad j;
+      j.hist = hJunction[det][strip];
+      j.fit = fJunction[det][strip];
+      j.color = kGreen + 2;
+      junctionPages[det].push_back(j);
+
+      DetectorPad p01;
+      p01.hist = hPin0Pin1[det][strip];
+      p01.is2D = true;
+      pin0Pin1Pages[det].push_back(p01);
+
+      DetectorPad pe;
+      pe.hist = hPosEnergy[det][strip];
+      pe.is2D = true;
+      posEnergyPages[det].push_back(pe);
+    }
+  }
+  DrawDetectorPagesPdf(ohmicPages, tOutputDir, "ohmic_peaks.pdf");
+  DrawDetectorPagesPdf(junctionPages, tOutputDir, "junction_peaks.pdf");
+  DrawDetectorPagesPdf(pin0Pin1Pages, tOutputDir, "junction_epin0_epin1.pdf");
+  DrawDetectorPagesPdf(posEnergyPages, tOutputDir, "junction_position_energy.pdf");
 
   TFile outFile(tOutputDir + "/x6_calibration_histograms.root", "RECREATE");
   hDtOhmicJun->Write();
@@ -1610,6 +1751,8 @@ void RunCalibration(const RunConfig &cfg) {
       if (fJunction[det][strip] != nullptr) {
         fJunction[det][strip]->Write();
       }
+      hPin0Pin1[det][strip]->Write();
+      hPosEnergy[det][strip]->Write();
     }
   }
   outFile.Close();
